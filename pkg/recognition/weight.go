@@ -106,6 +106,7 @@ func (wr *WeightRecognizer) Recognize(beginLayers, endLayers []model.Layer) Reco
 }
 
 // recognizeLayer 识别单层的商品
+// recognizeLayer 识别单层的商品
 func (wr *WeightRecognizer) recognizeLayer(layer int, weightDiff int) []RecognitionItem {
 	items := make([]RecognitionItem, 0)
 	layerGoods := wr.layerGoodsMap[layer]
@@ -153,52 +154,97 @@ func (wr *WeightRecognizer) recognizeLayer(layer int, weightDiff int) []Recognit
 		}
 	}
 
-	// 尝试识别每个商品
-	for _, good := range layerGoods {
-		stock := wr.layerStockMap[layer][good.ID]
-
-		// 计算可能的数量范围
-		minNum := (weightDiff - wr.sensorTolerance) / good.Weight
-		maxNum := (weightDiff + wr.sensorTolerance) / good.Weight
-
-		// 限制在库存范围内
-		if minNum < 0 {
-			minNum = 0
-		}
-		if maxNum > stock {
-			maxNum = stock
-		}
-
-		// 如果范围合理，取中间值
-		if minNum <= maxNum && minNum > 0 {
-			num := minNum // 优先选择最小数量
-			items = append(items, RecognitionItem{
-				GoodsID: good.ID,
-				Num:     num,
-			})
-			// 不再break，继续尝试其他商品
+	// 检查是否有相同重量的商品
+	hasSameWeight := false
+	for i := 1; i < len(layerGoods); i++ {
+		if layerGoods[i].Weight == layerGoods[i-1].Weight {
+			hasSameWeight = true
+			break
 		}
 	}
 
-	// 如果找到多个商品，检查总重量是否在容差范围内
-	if len(items) > 1 {
+	// 如果有相同重量的商品，返回识别异常
+	if hasSameWeight {
+		return nil
+	}
+
+	// 尝试所有可能的组合
+	bestItems := make([]RecognitionItem, 0)
+	bestDiff := weightDiff + wr.sensorTolerance + 1
+
+	// 生成所有可能的组合
+	maxCombinations := 1 << len(layerGoods) // 2^n
+	for i := 1; i < maxCombinations; i++ {
+		currentItems := make([]RecognitionItem, 0)
 		totalWeight := 0
-		for _, item := range items {
-			for _, good := range layerGoods {
-				if good.ID == item.GoodsID {
-					totalWeight += good.Weight * item.Num
+		valid := true
+
+		// 检查每个商品是否在当前组合中
+		for j := 0; j < len(layerGoods); j++ {
+			if (i & (1 << j)) != 0 {
+				good := layerGoods[j]
+				stock := wr.layerStockMap[layer][good.ID]
+
+				// 检查库存
+				if stock <= 0 {
+					valid = false
+					break
+				}
+
+				// 计算可能的数量范围
+				minNum := (weightDiff - wr.sensorTolerance) / good.Weight
+				maxNum := (weightDiff + wr.sensorTolerance) / good.Weight
+
+				// 限制在库存范围内
+				if minNum < 0 {
+					minNum = 0
+				}
+				if maxNum > stock {
+					maxNum = stock
+				}
+
+				// 如果范围合理，取中间值
+				if minNum <= maxNum && minNum > 0 {
+					num := minNum // 优先选择最小数量
+					currentItems = append(currentItems, RecognitionItem{
+						GoodsID: good.ID,
+						Num:     num,
+					})
+					totalWeight += good.Weight * num
+				} else {
+					valid = false
 					break
 				}
 			}
 		}
 
-		// 如果总重量不在容差范围内，清空结果
-		if abs(totalWeight-weightDiff) > wr.sensorTolerance {
-			items = make([]RecognitionItem, 0)
+		if !valid {
+			continue
+		}
+
+		// 计算差异
+		diff := abs(totalWeight - weightDiff)
+
+		// 如果在容差范围内
+		if diff <= wr.sensorTolerance {
+			// 如果找到更好的组合（商品数量更多或差异更小）
+			if len(currentItems) > len(bestItems) || (len(currentItems) == len(bestItems) && diff < bestDiff) {
+				bestItems = currentItems
+				bestDiff = diff
+			}
+		} else if len(bestItems) == 0 && diff < bestDiff {
+			// 如果还没有找到在容差范围内的组合，记录最接近的
+			bestItems = currentItems
+			bestDiff = diff
 		}
 	}
 
-	return items
+	// 如果最小差异超过容差范围的两倍，返回空
+	if bestDiff > wr.sensorTolerance*2 {
+		return nil
+	}
+
+	return bestItems
 }
 
 // abs 返回整数的绝对值
