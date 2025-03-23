@@ -1,6 +1,7 @@
 package recognition
 
 import (
+	"VendingMachineWeightRecognition/pkg/exception"
 	"VendingMachineWeightRecognition/pkg/model"
 	"testing"
 )
@@ -93,5 +94,89 @@ func TestWeightRecognizer_EmptyLayer(t *testing.T) {
 	}
 	if len(result.Items) != 0 {
 		t.Errorf("不应该识别出商品，实际识别出%d个", len(result.Items))
+	}
+}
+
+func TestWeightRecognizer_SensorError(t *testing.T) {
+	goods := []model.Goods{
+		{ID: "000001", Weight: 100},
+	}
+
+	stocks := []model.Stock{
+		{GoodsID: "000001", Layer: 1, Num: 10},
+	}
+
+	beginLayers := []model.Layer{
+		{Index: 1, Weight: -1}, // 传感器异常
+	}
+
+	endLayers := []model.Layer{
+		{Index: 1, Weight: 900},
+	}
+
+	recognizer := NewWeightRecognizer(goods, stocks)
+	result := recognizer.Recognize(beginLayers, endLayers)
+
+	if len(result.Exceptions) != 1 {
+		t.Errorf("应该检测到1个异常，实际检测到%d个", len(result.Exceptions))
+	}
+	if result.Exceptions[0].Exception != exception.SensorError {
+		t.Error("异常类型应该是传感器异常")
+	}
+}
+
+func TestWeightRecognizer_ForeignObjectError(t *testing.T) {
+	goods := []model.Goods{
+		{ID: "000001", Weight: 100},
+	}
+
+	stocks := []model.Stock{
+		{GoodsID: "000001", Layer: 1, Num: 10},
+	}
+
+	beginLayers := []model.Layer{
+		{Index: 1, Weight: 1000},
+	}
+
+	endLayers := []model.Layer{
+		{Index: 1, Weight: 1100}, // 重量增加，异物异常
+	}
+
+	recognizer := NewWeightRecognizer(goods, stocks)
+	result := recognizer.Recognize(beginLayers, endLayers)
+
+	if len(result.Exceptions) != 1 {
+		t.Errorf("应该检测到1个异常，实际检测到%d个", len(result.Exceptions))
+	}
+	if result.Exceptions[0].Exception != exception.ForeignObjectError {
+		t.Error("异常类型应该是异物异常")
+	}
+}
+
+func TestWeightRecognizer_RecognitionError(t *testing.T) {
+	goods := []model.Goods{
+		{ID: "000001", Weight: 100},
+	}
+
+	stocks := []model.Stock{
+		{GoodsID: "000001", Layer: 1, Num: 10},
+	}
+
+	beginLayers := []model.Layer{
+		{Index: 1, Weight: 1000},
+	}
+
+	endLayers := []model.Layer{
+		{Index: 1, Weight: 950}, // 无法识别的重量差
+	}
+
+	recognizer := NewWeightRecognizer(goods, stocks)
+	result := recognizer.Recognize(beginLayers, endLayers)
+
+	if len(result.Exceptions) != 1 {
+		t.Errorf("应该检测到1个异常，实际检测到%d个", len(result.Exceptions))
+	}
+	if result.Exceptions[0].Exception != exception.RecognitionError {
+		t.Error("异常类型应该是无法识别异常")
 	}
 }

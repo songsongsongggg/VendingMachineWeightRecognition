@@ -1,6 +1,7 @@
 package recognition
 
 import (
+	"VendingMachineWeightRecognition/pkg/exception"
 	"VendingMachineWeightRecognition/pkg/model"
 )
 
@@ -53,6 +54,29 @@ func (wr *WeightRecognizer) Recognize(beginLayers, endLayers []model.Layer) Reco
 		beginLayer := beginLayers[i]
 		endLayer := endLayers[i]
 
+		// 检查传感器异常
+		if beginLayer.Weight < 0 || beginLayer.Weight > 32767 ||
+			endLayer.Weight < 0 || endLayer.Weight > 32767 {
+			result.Exceptions = append(result.Exceptions, RecognitionException{
+				Layer:       beginLayer.Index,
+				Exception:   exception.SensorError,
+				BeginWeight: beginLayer.Weight,
+				EndWeight:   endLayer.Weight,
+			})
+			continue
+		}
+
+		// 检查异物异常
+		if endLayer.Weight > beginLayer.Weight {
+			result.Exceptions = append(result.Exceptions, RecognitionException{
+				Layer:       beginLayer.Index,
+				Exception:   exception.ForeignObjectError,
+				BeginWeight: beginLayer.Weight,
+				EndWeight:   endLayer.Weight,
+			})
+			continue
+		}
+
 		// 计算重量差
 		weightDiff := beginLayer.Weight - endLayer.Weight
 
@@ -63,9 +87,17 @@ func (wr *WeightRecognizer) Recognize(beginLayers, endLayers []model.Layer) Reco
 
 		// 识别该层的商品
 		items := wr.recognizeLayer(beginLayer.Index, weightDiff)
-		if len(items) > 0 {
-			result.Items = append(result.Items, items...)
+		if len(items) == 0 {
+			result.Exceptions = append(result.Exceptions, RecognitionException{
+				Layer:       beginLayer.Index,
+				Exception:   exception.RecognitionError,
+				BeginWeight: beginLayer.Weight,
+				EndWeight:   endLayer.Weight,
+			})
+			continue
 		}
+
+		result.Items = append(result.Items, items...)
 	}
 
 	return result
