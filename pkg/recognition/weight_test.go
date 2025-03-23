@@ -23,11 +23,11 @@ func TestWeightRecognizer_Recognize(t *testing.T) {
 	}
 
 	endLayers := []model.Layer{
-		{Index: 1, Weight: 900},
-		{Index: 2, Weight: 1800},
+		{Index: 1, Weight: 900},  // 差100g
+		{Index: 2, Weight: 1800}, // 差200g
 	}
 
-	recognizer := NewWeightRecognizer(goods, stocks)
+	recognizer := NewWeightRecognizer(10, goods, stocks)
 	result := recognizer.Recognize(beginLayers, endLayers)
 
 	if !result.Successful {
@@ -52,10 +52,10 @@ func TestWeightRecognizer_BasicRecognition(t *testing.T) {
 	}
 
 	endLayers := []model.Layer{
-		{Index: 1, Weight: 900},
+		{Index: 1, Weight: 900}, // 差100g
 	}
 
-	recognizer := NewWeightRecognizer(goods, stocks)
+	recognizer := NewWeightRecognizer(10, goods, stocks)
 	result := recognizer.Recognize(beginLayers, endLayers)
 
 	if !result.Successful {
@@ -86,7 +86,7 @@ func TestWeightRecognizer_EmptyLayer(t *testing.T) {
 		{Index: 1, Weight: 1000}, // 重量无变化
 	}
 
-	recognizer := NewWeightRecognizer(goods, stocks)
+	recognizer := NewWeightRecognizer(10, goods, stocks)
 	result := recognizer.Recognize(beginLayers, endLayers)
 
 	if !result.Successful {
@@ -114,7 +114,7 @@ func TestWeightRecognizer_SensorError(t *testing.T) {
 		{Index: 1, Weight: 900},
 	}
 
-	recognizer := NewWeightRecognizer(goods, stocks)
+	recognizer := NewWeightRecognizer(10, goods, stocks)
 	result := recognizer.Recognize(beginLayers, endLayers)
 
 	if len(result.Exceptions) != 1 {
@@ -142,7 +142,7 @@ func TestWeightRecognizer_ForeignObjectError(t *testing.T) {
 		{Index: 1, Weight: 1100}, // 重量增加，异物异常
 	}
 
-	recognizer := NewWeightRecognizer(goods, stocks)
+	recognizer := NewWeightRecognizer(10, goods, stocks)
 	result := recognizer.Recognize(beginLayers, endLayers)
 
 	if len(result.Exceptions) != 1 {
@@ -170,7 +170,7 @@ func TestWeightRecognizer_RecognitionError(t *testing.T) {
 		{Index: 1, Weight: 950}, // 无法识别的重量差
 	}
 
-	recognizer := NewWeightRecognizer(goods, stocks)
+	recognizer := NewWeightRecognizer(10, goods, stocks)
 	result := recognizer.Recognize(beginLayers, endLayers)
 
 	if len(result.Exceptions) != 1 {
@@ -178,5 +178,64 @@ func TestWeightRecognizer_RecognitionError(t *testing.T) {
 	}
 	if result.Exceptions[0].Exception != exception.RecognitionError {
 		t.Error("异常类型应该是无法识别异常")
+	}
+}
+
+func TestWeightRecognizer_SensorTolerance(t *testing.T) {
+	goods := []model.Goods{
+		{ID: "000001", Weight: 100},
+	}
+
+	stocks := []model.Stock{
+		{GoodsID: "000001", Layer: 1, Num: 10},
+	}
+
+	beginLayers := []model.Layer{
+		{Index: 1, Weight: 1000},
+	}
+
+	endLayers := []model.Layer{
+		{Index: 1, Weight: 995}, // 重量差在传感器容差范围内
+	}
+
+	recognizer := NewWeightRecognizer(10, goods, stocks)
+	result := recognizer.Recognize(beginLayers, endLayers)
+
+	if !result.Successful {
+		t.Error("传感器容差识别应该成功")
+	}
+	if len(result.Items) != 0 {
+		t.Errorf("不应该识别出商品，实际识别出%d个", len(result.Items))
+	}
+}
+
+func TestWeightRecognizer_SensorToleranceWithWeight(t *testing.T) {
+	goods := []model.Goods{
+		{ID: "000001", Weight: 100},
+	}
+
+	stocks := []model.Stock{
+		{GoodsID: "000001", Layer: 1, Num: 10},
+	}
+
+	beginLayers := []model.Layer{
+		{Index: 1, Weight: 1000},
+	}
+
+	endLayers := []model.Layer{
+		{Index: 1, Weight: 890}, // 重量差为110，在传感器容差范围内
+	}
+
+	recognizer := NewWeightRecognizer(10, goods, stocks)
+	result := recognizer.Recognize(beginLayers, endLayers)
+
+	if !result.Successful {
+		t.Error("传感器容差识别应该成功")
+	}
+	if len(result.Items) != 1 {
+		t.Errorf("应该识别出1个商品，实际识别出%d个", len(result.Items))
+	}
+	if result.Items[0].Num != 1 {
+		t.Errorf("商品数量应该是1，实际是%d", result.Items[0].Num)
 	}
 }

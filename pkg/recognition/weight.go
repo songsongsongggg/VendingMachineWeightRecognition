@@ -7,19 +7,21 @@ import (
 
 // WeightRecognizer 重量识别器
 type WeightRecognizer struct {
-	goods         []model.Goods
-	stocks        []model.Stock
-	layerGoodsMap map[int][]model.Goods
-	layerStockMap map[int]map[string]int
+	sensorTolerance int // 传感器容差
+	goods           []model.Goods
+	stocks          []model.Stock
+	layerGoodsMap   map[int][]model.Goods
+	layerStockMap   map[int]map[string]int
 }
 
 // NewWeightRecognizer 创建新的重量识别器
-func NewWeightRecognizer(goods []model.Goods, stocks []model.Stock) *WeightRecognizer {
+func NewWeightRecognizer(sensorTolerance int, goods []model.Goods, stocks []model.Stock) *WeightRecognizer {
 	wr := &WeightRecognizer{
-		goods:         goods,
-		stocks:        stocks,
-		layerGoodsMap: make(map[int][]model.Goods),
-		layerStockMap: make(map[int]map[string]int),
+		sensorTolerance: sensorTolerance,
+		goods:           goods,
+		stocks:          stocks,
+		layerGoodsMap:   make(map[int][]model.Goods),
+		layerStockMap:   make(map[int]map[string]int),
 	}
 
 	// 初始化层商品映射
@@ -80,9 +82,9 @@ func (wr *WeightRecognizer) Recognize(beginLayers, endLayers []model.Layer) Reco
 		// 计算重量差
 		weightDiff := beginLayer.Weight - endLayer.Weight
 
-		// 如果重量差为0，说明没有购物
-		if weightDiff == 0 {
-			continue
+		// 考虑传感器容差，判断是否无购物
+		if weightDiff <= wr.sensorTolerance && weightDiff >= -wr.sensorTolerance {
+			continue // 无购物
 		}
 
 		// 识别该层的商品
@@ -117,11 +119,21 @@ func (wr *WeightRecognizer) recognizeLayer(layer int, weightDiff int) []Recognit
 		good := layerGoods[0]
 		stock := wr.layerStockMap[layer][good.ID]
 
-		// 计算可能的数量
-		num := weightDiff / good.Weight
+		// 计算可能的数量范围
+		minNum := (weightDiff - wr.sensorTolerance) / good.Weight
+		maxNum := (weightDiff + wr.sensorTolerance) / good.Weight
 
-		// 检查数量是否合理
-		if num > 0 && num <= stock {
+		// 限制在库存范围内
+		if minNum < 0 {
+			minNum = 0
+		}
+		if maxNum > stock {
+			maxNum = stock
+		}
+
+		// 如果范围合理，取中间值
+		if minNum <= maxNum && minNum > 0 {
+			num := minNum // 优先选择最小数量
 			items = append(items, RecognitionItem{
 				GoodsID: good.ID,
 				Num:     num,
@@ -144,16 +156,55 @@ func (wr *WeightRecognizer) recognizeLayer(layer int, weightDiff int) []Recognit
 	// 尝试识别每个商品
 	for _, good := range layerGoods {
 		stock := wr.layerStockMap[layer][good.ID]
-		num := weightDiff / good.Weight
 
-		if num > 0 && num <= stock {
+		// 计算可能的数量范围
+		minNum := (weightDiff - wr.sensorTolerance) / good.Weight
+		maxNum := (weightDiff + wr.sensorTolerance) / good.Weight
+
+		// 限制在库存范围内
+		if minNum < 0 {
+			minNum = 0
+		}
+		if maxNum > stock {
+			maxNum = stock
+		}
+
+		// 如果范围合理，取中间值
+		if minNum <= maxNum && minNum > 0 {
+			num := minNum // 优先选择最小数量
 			items = append(items, RecognitionItem{
 				GoodsID: good.ID,
 				Num:     num,
 			})
-			break // 找到第一个匹配的商品就返回
+			// 不再break，继续尝试其他商品
+		}
+	}
+
+	// 如果找到多个商品，检查总重量是否在容差范围内
+	if len(items) > 1 {
+		totalWeight := 0
+		for _, item := range items {
+			for _, good := range layerGoods {
+				if good.ID == item.GoodsID {
+					totalWeight += good.Weight * item.Num
+					break
+				}
+			}
+		}
+
+		// 如果总重量不在容差范围内，清空结果
+		if abs(totalWeight-weightDiff) > wr.sensorTolerance {
+			items = make([]RecognitionItem, 0)
 		}
 	}
 
 	return items
+}
+
+// abs 返回整数的绝对值
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
 }
